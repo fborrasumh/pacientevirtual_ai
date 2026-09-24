@@ -1,6 +1,64 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script id="gpt6-luna-shim">
+/* gpt-6-luna: modelo por defecto con temperatura=1 (actualización sep-2026).
+   Adapta las peticiones a la API de OpenAI para la familia gpt-6:
+   temperature=1, max_tokens -> max_completion_tokens (con margen para razonamiento)
+   y reintento automático si la API rechaza algún parámetro. */
+(function(){
+  var NEW='gpt-6-luna', OLD='gpt-4o-mini';
+  try{
+    if(!localStorage.getItem('__gpt6_luna_mig_v1')){
+      for(var i=0;i<localStorage.length;i++){
+        var k=localStorage.key(i), v=localStorage.getItem(k);
+        if(v===OLD||v==='"'+OLD+'"'){ localStorage.setItem(k, v.replace(OLD,NEW)); continue; }
+        if(v && v.length<20000 && v.charAt(0)==='{' && v.indexOf(OLD)>=0){
+          try{ var o=JSON.parse(v), ch=false;
+            for(var p in o){ if(o[p]===OLD){ o[p]=NEW; ch=true; } }
+            if(ch) localStorage.setItem(k, JSON.stringify(o));
+          }catch(e){}
+        }
+      }
+      localStorage.setItem('__gpt6_luna_mig_v1','1');
+    }
+  }catch(e){}
+  var of=window.fetch; if(!of) return;
+  function adapt(url,b){
+    if(!b || typeof b.model!=='string' || !/^gpt-6/.test(b.model)) return false;
+    b.temperature=1;
+    ['top_p','frequency_penalty','presence_penalty','logit_bias','logprobs','top_logprobs'].forEach(function(p){ delete b[p]; });
+    if(/chat\/completions/.test(url) && b.max_tokens!=null){
+      if(b.max_completion_tokens==null) b.max_completion_tokens=Math.min(128000, (+b.max_tokens||0)+6000);
+      delete b.max_tokens;
+    }
+    return true;
+  }
+  window.fetch=function(input,init){
+    var url=typeof input==='string'?input:(input&&input.url)||'';
+    if(!/api\.openai\.com\/v1\/(chat\/completions|responses)/.test(url) || !init || typeof init.body!=='string') return of.apply(this,arguments);
+    var b; try{ b=JSON.parse(init.body); }catch(e){ return of.apply(this,arguments); }
+    if(!adapt(url,b)) return of.apply(this,arguments);
+    var self=this, tries=0;
+    function go(){
+      var ini=Object.assign({},init,{body:JSON.stringify(b)});
+      return of.call(self,input,ini).then(function(r){
+        if(r.status!==400 || tries>=3) return r;
+        return r.clone().json().then(function(j){
+          var err=(j&&j.error)||{}, p=err.param, msg=String(err.message||'');
+          if(!p){ var m=msg.match(/'([a-z_]+)'/); if(m) p=m[1]; }
+          if(p && b.hasOwnProperty(p) && /unsupported|not supported|does not support|only the default/i.test(msg)){
+            delete b[p]; tries++; return go();
+          }
+          return r;
+        },function(){ return r; });
+      });
+    }
+    return go();
+  };
+})();
+</script>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PacienteVirtual·AI</title>
@@ -255,7 +313,7 @@
             <div class="field">
               <label class="lab">Modelo</label>
               <select class="inp" id="model">
-                <option value="gpt-4o-mini" selected>gpt-4o-mini</option>
+                <option value="gpt-6-luna" selected>gpt-6-luna · más capaz y más barato (recomendado)</option><option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="gpt-4.1-mini">gpt-4.1-mini</option>
               </select>
@@ -341,7 +399,7 @@
         <p style="margin:0 0 10px"><b style="color:var(--ink)">Exploración y pruebas</b>: pídelas con los botones. Recibirás hallazgos objetivos coherentes con el caso.</p>
         <p style="margin:0"><b style="color:var(--ink)">Al finalizar</b>, propones tu juicio y plan; un evaluador puntúa con rúbrica y se revela el caso.</p>
         <p style="margin:10px 0 0"><b style="color:var(--ink)">🎤 Voz</b>: dicta con el micrófono y activa «Voz» para oír al paciente. Con <b style="color:var(--ink)">🎧 Manos libres</b> hablas y escuchas en bucle, sin teclado (Chrome).</p>
-        <div style="margin-top:12px;font-size:12px">Motor reutilizable para las 5 titulaciones · <span class="mono">gpt-4o-mini</span></div>
+        <div style="margin-top:12px;font-size:12px">Motor reutilizable para las 5 titulaciones · <span class="mono">gpt-6-luna</span></div>
       </div>
     </div>
   </div>
